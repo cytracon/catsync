@@ -1,0 +1,2 @@
+# Runtime on Omarchy/Arch (pacman, not pip):
+#   python-gobject gtk3 libayatana-appindicator

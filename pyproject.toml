@@ -1,0 +1,13 @@
+[project]
+name = "catsyncd"
+version = "0.5.0"
+description = "Catsync Google Drive sync daemon for Omarchy"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+catsyncd = "catsyncd.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

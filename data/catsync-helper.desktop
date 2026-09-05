@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Catsync Helper
+NoDisplay=true
+Exec=catsync open-cloud %F
+TryExec=catsync
+Icon=catsync
+Terminal=false

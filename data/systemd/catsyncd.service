@@ -1,0 +1,17 @@
+[Unit]
+Description=Catsync daemon
+ConditionPathExists=%h/.config/catsyncd/token.json
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/catsyncd daemon
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=120
+MemoryHigh=1G
+Nice=10
+
+[Install]
+WantedBy=default.target

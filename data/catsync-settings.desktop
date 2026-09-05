@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Catsync Settings
+GenericName=Google Drive Sync Settings
+Comment=Open Catsync sync settings
+Exec=catsync-tray --settings
+TryExec=catsync-tray
+Icon=catsync
+Terminal=false
+Categories=Settings;
+StartupNotify=false
+StartupWMClass=catsync-settings

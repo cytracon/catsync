@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+build/
+dist/
+*.egg-info/
+.DS_Store
+config.json
+client_secret.json
+token.json
+state.db
+status.json
+*.json.bak
+.env

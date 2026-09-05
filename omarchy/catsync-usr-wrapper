@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Replaces leftover Ubuntu /usr/bin/catsync* on Omarchy.
+set -euo pipefail
+name="$(basename "$0")"
+LOCAL="${HOME}/.local/bin/${name}"
+if [[ -x "$LOCAL" ]]; then
+  exec "$LOCAL" "$@"
+fi
+echo "${name}: Omarchy build not found at $LOCAL" >&2
+echo "Install with:  omarchy install catsync" >&2
+exit 1

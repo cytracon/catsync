@@ -1,0 +1,80 @@
+#!/bin/bash
+# User-local Omarchy CLI overlay. Forwards everything to packaged omarchy
+# except Cytracon installers that live in ~/.local/bin/omarchy-install-*.
+# Installed as ~/.local/bin/omarchy (PATH ahead of /usr/share/omarchy/bin).
+
+set -euo pipefail
+
+SYS_OMARCHY="${OMARCHY_PATH:-/usr/share/omarchy}/bin/omarchy"
+
+if [[ ! -x $SYS_OMARCHY ]]; then
+  echo "Packaged omarchy not found: $SYS_OMARCHY" >&2
+  exit 127
+fi
+
+args=("$@")
+
+user_install_for() {
+  local name="$1"
+  local path="${HOME}/.local/bin/omarchy-install-${name}"
+  [[ -x $path ]] && { echo "$path"; return 0; }
+  return 1
+}
+
+# omarchy install <name> → ~/.local/bin/omarchy-install-<name> when present
+if ((${#args[@]} >= 2)) && [[ ${args[0]} == "install" ]]; then
+  if inst="$(user_install_for "${args[1]}")"; then
+    exec "$inst" "${args[@]:2}"
+  fi
+fi
+
+# omarchy install terminal tilix …
+if ((${#args[@]} >= 3)) && [[ ${args[0]} == "install" && ${args[1]} == "terminal" ]]; then
+  if inst="$(user_install_for "${args[2]}")"; then
+    exec "$inst" "${args[@]:3}"
+  fi
+fi
+
+# omarchy default terminal tilix
+if ((${#args[@]} >= 3)) && [[ ${args[0]} == "default" && ${args[1]} == "terminal" && ${args[2]} == "tilix" ]]; then
+  mkdir -p "${HOME}/.config"
+  cat >"${HOME}/.config/xdg-terminals.list" <<'EOF'
+# Terminal emulator preference order for xdg-terminal-exec
+# The first found and valid terminal will be used
+com.gexperts.Tilix.desktop
+foot.desktop
+EOF
+  if command -v omarchy-notification-send >/dev/null 2>&1; then
+    omarchy-notification-send -g  "Tilix is now the default terminal"
+  else
+    echo "Tilix is now the default terminal"
+  fi
+  exit 0
+fi
+
+if ((${#args[@]} == 0)); then
+  exec "$SYS_OMARCHY"
+fi
+
+if [[ ${args[0]} == "install" ]] && { ((${#args[@]} == 1)) || [[ ${args[1]} == "--help" || ${args[1]} == "-h" ]]; }; then
+  "$SYS_OMARCHY" "${args[@]}"
+  status=$?
+  shopt -s nullglob
+  for inst in "${HOME}/.local/bin"/omarchy-install-*; do
+    name="${inst##*/omarchy-install-}"
+    summary="$(grep -m1 '^# omarchy:summary=' "$inst" 2>/dev/null | sed 's/^# omarchy:summary=//')"
+    printf "  omarchy install %-49s %s\n" "$name" "${summary:-User-local installer}"
+  done
+  exit "$status"
+fi
+
+if [[ ${args[0]} == "install" && ${args[1]:-} == "terminal" ]] && { ((${#args[@]} == 2)) || [[ ${args[2]:-} == "--help" || ${args[2]:-} == "-h" ]]; }; then
+  "$SYS_OMARCHY" "${args[@]}"
+  status=$?
+  if [[ -x ${HOME}/.local/bin/omarchy-install-tilix ]]; then
+    echo "  omarchy install terminal tilix                                     Cytracon Tilix (user-local, no sudo)"
+  fi
+  exit "$status"
+fi
+
+exec "$SYS_OMARCHY" "$@"

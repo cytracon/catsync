@@ -1,0 +1,89 @@
+#!/bin/bash
+# omarchy:group=install
+# omarchy:name=catsync
+# omarchy:summary=Install Catsync (Omarchy Google Drive sync) into ~/.local.
+# omarchy:examples=omarchy install catsync
+# omarchy:aliases=omarchy-install-catsync
+
+set -euo pipefail
+
+PREFIX="${CATSYNC_PREFIX:-$HOME/.local}"
+REPO="${CATSYNC_REPO:-cytracon/catsync}"
+WEB="https://github.com/${REPO}"
+
+log() { printf '\033[36m[catsync]\033[0m %s\n' "$*"; }
+ok()  { printf '\033[32m[catsync]\033[0m %s\n' "$*"; }
+err() { printf '\033[31m[catsync]\033[0m %s\n' "$*" >&2; }
+die() { err "$*"; exit 2; }
+
+HERE="$(cd "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+find_installer() {
+  local f
+  for f in \
+    "${HERE}/../install-local.sh" \
+    "${PREFIX}/share/catsyncd/install-local.sh" \
+    "${HERE}/install-local.sh"
+  do
+    [[ -f "$f" ]] && { echo "$f"; return 0; }
+  done
+  return 1
+}
+
+ensure_sources() {
+  if src="$(find_installer)"; then
+    ROOT="$(cd "$(dirname "$src")" && pwd)"
+    echo "$ROOT"
+    return 0
+  fi
+  command -v git >/dev/null 2>&1 || die "git is required to clone ${REPO}"
+  mkdir -p "${PREFIX}/share"
+  tmp="$(mktemp -d)"
+  log "Cloning ${WEB}…"
+  git clone --depth 1 "https://github.com/${REPO}.git" "$tmp/catsync" || {
+    rm -rf "$tmp"
+    die "Clone failed: ${WEB}"
+  }
+  echo "$tmp/catsync"
+}
+
+install_omarchy_cli() {
+  mkdir -p "${PREFIX}/bin"
+  src="${HERE}/omarchy-install-catsync"
+  dest="${PREFIX}/bin/omarchy-install-catsync"
+  if [[ -f "$src" ]]; then
+    cp -f "$src" "$dest"
+    chmod 755 "$dest"
+  fi
+  wrap="${HERE}/omarchy-user-cli"
+  if [[ -f "$wrap" ]]; then
+    cp -f "$wrap" "${PREFIX}/bin/omarchy"
+    chmod 755 "${PREFIX}/bin/omarchy"
+  fi
+}
+
+main() {
+  case "${1:-}" in
+    -h|--help)
+      cat <<'EOF'
+Usage: omarchy install catsync
+
+Install Catsync into ~/.local. User config stays in ~/.config/catsyncd/.
+EOF
+      exit 0
+      ;;
+  esac
+
+  log "Catsync for Omarchy"
+  install_omarchy_cli
+  ROOT="$(ensure_sources)"
+  bash "$ROOT/install-local.sh"
+  if command -v omarchy-notification-send >/dev/null 2>&1; then
+    omarchy-notification-send -g 󰅟 "Catsync installed" "Launch from the bar plugin or run catsync-tray --settings" || true
+  fi
+  ok "Fertig. Status: catsyncd --status"
+  ok "Plugin: omarchy plugin add https://github.com/cytracon/omarchy-catsync.git --enable"
+  ok "Docs: ${WEB}"
+}
+
+main "$@"

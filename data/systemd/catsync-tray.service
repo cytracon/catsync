@@ -1,0 +1,13 @@
+[Unit]
+Description=Catsync tray indicator
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/catsync-tray
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

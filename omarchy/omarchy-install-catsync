@@ -51,7 +51,7 @@ install_omarchy_cli() {
   mkdir -p "${PREFIX}/bin"
   src="${HERE}/omarchy-install-catsync"
   dest="${PREFIX}/bin/omarchy-install-catsync"
-  if [[ -f "$src" ]]; then
+  if [[ -f "$src" && "$(readlink -f "$src")" != "$(readlink -f "$dest" 2>/dev/null || true)" ]]; then
     cp -f "$src" "$dest"
     chmod 755 "$dest"
   fi

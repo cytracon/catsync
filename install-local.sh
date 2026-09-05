@@ -129,6 +129,23 @@ if [[ -f "$CFG_DIR/token.json" ]]; then
   systemctl --user enable catsyncd.service
   systemctl --user restart catsyncd.service || systemctl --user start catsyncd.service || true
   echo "==> Enabled systemd --user catsyncd.service"
+else
+  systemctl --user enable catsyncd.service >/dev/null 2>&1 || true
+  echo "==> Daemon unit installed (starts after Google auth: catsyncd auth)"
+fi
+
+# Bar plugin: status + start/stop. Idempotent if already added from the marketplace.
+PLUGIN_ID="io.github.cytracon.catsync"
+PLUGIN_URL="https://github.com/cytracon/omarchy-catsync.git"
+PLUGIN_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/plugins/${PLUGIN_ID}"
+if command -v omarchy >/dev/null 2>&1; then
+  if [[ -d "$PLUGIN_DIR" ]]; then
+    omarchy plugin enable "$PLUGIN_ID" --section right >/dev/null 2>&1 || true
+    echo "==> Bar plugin $PLUGIN_ID enabled"
+  elif omarchy plugin add "$PLUGIN_URL" --enable --yes; then
+    omarchy bar move "$PLUGIN_ID" --section right >/dev/null 2>&1 || true
+    echo "==> Bar plugin $PLUGIN_ID installed"
+  fi
 fi
 
 # Tray is optional on Omarchy (bar plugin is the primary UI). Enable if already wanted.

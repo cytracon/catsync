@@ -2,7 +2,7 @@
 
 **What it is.** Catsync keeps a local folder in sync with Google Drive on **Omarchy** (Arch Linux + Hyprland). Use it instead of Insync/Dropbox-style clients: bidirectional upload/download/move, conflicts kept as copies, deletes go to trash. It runs as a systemd user daemon, with an optional GTK tray.
 
-The Omarchy bar plugin is a separate repository: [cytracon/omarchy-catsync](https://github.com/cytracon/omarchy-catsync).
+`omarchy install catsync` installs the daemon **and** enables the bar plugin ([cytracon/omarchy-catsync](https://github.com/cytracon/omarchy-catsync)): status, start/stop, settings.
 
 ## Privacy
 

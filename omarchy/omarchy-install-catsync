@@ -82,7 +82,7 @@ EOF
     omarchy-notification-send -g 󰅟 "Catsync installed" "Launch from the bar plugin or run catsync-tray --settings" || true
   fi
   ok "Fertig. Status: catsyncd --status"
-  ok "Plugin: omarchy plugin add https://github.com/cytracon/omarchy-catsync.git --enable"
+  ok "Bar plugin enabled with the install."
   ok "Docs: ${WEB}"
 }
 

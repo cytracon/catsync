@@ -154,13 +154,22 @@ if systemctl --user is-enabled catsync-tray.service >/dev/null 2>&1; then
 fi
 
 # Leftover Ubuntu /usr/bin wrappers
-if [[ -x "$ROOT/omarchy/catsync-usr-wrapper" ]]; then
+WRAP="$ROOT/omarchy/catsync-usr-wrapper"
+if [[ -x "$WRAP" ]]; then
+  names=()
   for name in catsync catsyncd catsync-tray; do
     if [[ -e "/usr/bin/$name" ]] && ! grep -q 'Omarchy build' "/usr/bin/$name" 2>/dev/null; then
-      echo "==> Leftover /usr/bin/$name detected. Point it at ~/.local with:"
-      echo "    sudo install -m 755 $ROOT/omarchy/catsync-usr-wrapper /usr/bin/$name"
+      names+=("$name")
     fi
   done
+  if ((${#names[@]})); then
+    echo "==> Replacing leftover Ubuntu ${names[*]} under /usr…"
+    if pkexec bash -c "for n in ${names[*]}; do install -m 755 '$WRAP' \"/usr/bin/\$n\"; done"; then
+      echo "==> /usr/bin/{${names[*]}} now launch ~/.local"
+    else
+      echo "==> skipped (no polkit auth). sudo install -m 755 $WRAP /usr/bin/<name>"
+    fi
+  fi
 fi
 
 echo

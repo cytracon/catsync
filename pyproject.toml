@@ -1,6 +1,6 @@
 [project]
 name = "catsyncd"
-version = "0.5.0"
+version = "0.5.1"
 description = "Catsync Google Drive sync daemon for Omarchy"
 requires-python = ">=3.10"
 dependencies = []

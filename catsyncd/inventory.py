@@ -3,7 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from fnmatch import fnmatch
+import re
+from fnmatch import fnmatch, translate
+from functools import lru_cache
 from pathlib import Path
 from typing import Iterable
 
@@ -400,7 +402,29 @@ def _ignored(rel: str, patterns: Iterable[str] = ()) -> bool:
     parts = rel.split("/")
     if ".catsync" in parts or ".git" in parts:
         return True
-    return any(_pattern_matches(rel, parts, pattern) for pattern in patterns)
+    components, suffixes = _compiled_ignore_patterns(tuple(patterns))
+    if components is not None:
+        if components.match(os.path.normcase(rel)) or any(
+            components.match(os.path.normcase(part)) for part in parts
+        ):
+            return True
+    return suffixes is not None and any(
+        suffixes.match(os.path.normcase("/".join(parts[index:])))
+        for index in range(len(parts))
+    )
+
+
+@lru_cache(maxsize=32)
+def _compiled_ignore_patterns(patterns: tuple[str, ...]):
+    """Compile once per configuration, preserving fnmatch and suffix semantics."""
+    components, suffixes = [], []
+    for pattern in patterns:
+        pattern = pattern.strip().strip("/")
+        if pattern:
+            target = suffixes if "/" in pattern else components
+            target.append(translate(os.path.normcase(pattern)))
+    return tuple(re.compile("|".join(group)) if group else None
+                 for group in (components, suffixes))
 
 
 def sync_path_allowed(

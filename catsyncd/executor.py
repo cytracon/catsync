@@ -179,7 +179,16 @@ def _download(root: Path, drive: DriveClient, remote: RemoteEntry | None, replac
     if remote.mime_type in GOOGLE_DOC_EXTENSIONS:
         data = google_doc_placeholder(remote).encode()
     else:
-        data = drive.download_bytes(remote.id)
+        try:
+            data = drive.download_bytes(remote.id)
+        except DriveError as exc:
+            if "fileNotDownloadable" in str(exc):
+                # Textdatei, die auf Drive als Google-Docs-Objekt liegt.
+                # Statt dauerhaft zu scheitern, legen wir den bekannten
+                # Placeholder an; der Inhalt ist ueber den Link erreichbar.
+                data = google_doc_placeholder(remote).encode()
+            else:
+                raise
     _atomic_write(target, data)
 
 

@@ -293,7 +293,7 @@ def record_from_pair(local: LocalEntry, remote: RemoteEntry) -> SyncRecord:
         local_path=local.path,
         remote_id=remote.id,
         remote_path=remote.path,
-        kind=remote.kind,
+        kind=local.kind,
         local_md5=local.md5,
         remote_md5=remote.md5,
         local_size=local.size,

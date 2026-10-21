@@ -113,6 +113,11 @@ class SyncEngine:
             self.changes_token = state.get_meta("changes_page_token")
             self.paired = is_paired(state.get_meta(PAIRED_META_KEY), self.records)
             try:
+                recent_deletes = json.loads(state.get_meta("recent_local_deletes") or "[]")
+                self.recent_local_deletes = {str(item) for item in recent_deletes}
+            except (TypeError, json.JSONDecodeError):
+                self.recent_local_deletes = set()
+            try:
                 self.discover_cursor = int(state.get_meta(DISCOVER_CURSOR_META) or "0")
             except ValueError:
                 self.discover_cursor = 0
@@ -352,21 +357,24 @@ class SyncEngine:
             self.remote_entries = drop_remote_ids(self.remote_entries, self.confirmed_missing_ids)
 
     def _confirm_bound_local_paths(self) -> set[str]:
-        """Gebundene Pfade, die auf der Platte fehlen, NIE als Delete melden.
+        """Gebundene Pfade, die auf der Platte fehlen.
 
-        Fehlende lokale Dateien/Ordner werden stattdessen von
-        plan_bound_objects wiederhergestellt (download_create), solange die
-        Drive-Kopie lebt. Nur echte inotify-DELETEs (watch.py) duerfen einen
-        remote_trash ausloesen. Damit kann ein Kaskaden-Move oder eine
-        unvollstaendige lokale Kopie keine Drive-Dateien mehr loeschen.
+        Nur Pfade mit einem echten vorherigen inotify-DELETE gelten als
+        geloescht (remote_trash). Alle anderen fehlenden Pfade werden von
+        plan_bound_objects wiederhergestellt (download_create). Damit kann
+        ein Kaskaden-Move oder eine unvollstaendige lokale Kopie keine
+        Drive-Dateien loeschen, echte User-Deletes ueberleben aber auch
+        einen Daemon-Neustart (die Menge wird in meta persistiert).
         """
         root = self.config.sync_root.expanduser().resolve()
+        missing: list[str] = []
         for record in self.records:
             target = root / record.local_path
             try:
                 target.lstat()
             except FileNotFoundError:
                 self.local_by_path.pop(record.local_path, None)
+                missing.append(record.local_path)
                 continue
             except OSError:
                 continue
@@ -380,7 +388,7 @@ class SyncEngine:
                 )
                 if entry is not None:
                     self.local_by_path[record.local_path] = entry
-        return set()
+        return {path for path in missing if path in self.recent_local_deletes}
 
     def _discover_bound_folder_children(self) -> None:
         """Find new Drive IDs under already-bound folders.
@@ -696,6 +704,7 @@ class SyncEngine:
                 state.set_meta(PAIRED_META_KEY, "1")
             state.set_meta(DISCOVER_CURSOR_META, str(self.discover_cursor))
             state.set_meta(DISCOVER_LISTED_EMPTY_META, json.dumps(sorted(self.listed_empty_ids)))
+            state.set_meta("recent_local_deletes", json.dumps(sorted(self.recent_local_deletes)[-2000:]))
             for key, value in summarize(actions).items():
                 state.set_meta(f"last_plan_{key}", str(value))
         finally:

@@ -444,6 +444,12 @@ def _remote_changed(record: SyncRecord, remote: RemoteEntry | None) -> bool:
     if remote is None:
         return False
     if remote.kind != record.kind:
+        # Drive-Shortcut (symlink) mit lokalem Platzhalter (file): die Art
+        # darf nicht als Aenderung gelten, sonst loop download_update.
+        if remote.kind == "symlink" and record.kind == "file":
+            if remote.md5 and record.remote_md5:
+                return remote.md5 != record.remote_md5
+            return remote.modified_time != record.remote_modified_time
         return True
     if remote.kind == "folder":
         return False

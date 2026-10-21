@@ -11,6 +11,10 @@ CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / 
 STATE_DIR = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state")) / APP_NAME
 DEFAULT_IGNORE_PATTERNS = (
     "**/apktool/**",
+    "**/build/**",
+    "**/.gradle/**",
+    "**/.cxx/**",
+    "**/smali/**",
     "*.tmp",
     "*.temp",
     "*.part",

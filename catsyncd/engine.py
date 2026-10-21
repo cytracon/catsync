@@ -357,16 +357,26 @@ class SyncEngine:
         If the file is still there, the scan missed it: keep it, never trash.
         That is the Kruger guard. exists() is the only local-delete authority
         besides an inotify DELETE.
+
+        Ordner werden hier NICHT als Delete gemeldet: ein fehlender Ordner
+        kann auch ein Kaskaden-Move sein (alter toter Folder-Record zieht
+        frische Kinder mit). Fehlende Ordner werden von plan_bound_objects
+        wiederhergestellt (download_create). Dateien unter einem fehlenden
+        Ordner werden erst nach der Wiederherstellung des Parents behandelt.
         """
         root = self.config.sync_root.expanduser().resolve()
-        gone: set[str] = set()
+        gone_files: set[str] = set()
+        gone_folders: set[str] = set()
         for record in self.records:
             target = root / record.local_path
             try:
                 target.lstat()
             except FileNotFoundError:
                 self.local_by_path.pop(record.local_path, None)
-                gone.add(record.local_path)
+                if record.kind == "folder":
+                    gone_folders.add(record.local_path)
+                else:
+                    gone_files.add(record.local_path)
                 continue
             except OSError:
                 continue
@@ -380,7 +390,13 @@ class SyncEngine:
                 )
                 if entry is not None:
                     self.local_by_path[record.local_path] = entry
-        return gone
+        # Dateien unter fehlenden Ordnern nicht als Delete melden.
+        gone_files = {
+            path
+            for path in gone_files
+            if not any(path.startswith(f"{folder}/") for folder in gone_folders)
+        }
+        return gone_files
 
     def _discover_bound_folder_children(self) -> None:
         """Find new Drive IDs under already-bound folders.

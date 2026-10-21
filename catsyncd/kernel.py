@@ -368,7 +368,30 @@ def plan_bound_objects(
             if action.action == "index_update" and action.reason in {"unchanged", "both sides moved to same path"}:
                 continue
             actions.append(action)
-    return actions
+
+    # Ordner mit gebundenen Kindern duerfen nicht als Ganzes in den Trash
+    # wandern (Kaskade: ein toter Folder-Record wuerde frische Kinder mitziehen).
+    # Stattdessen nur die Ordner-Bindung loesen; die Kinder bleiben gebunden.
+    bound_paths = {record.local_path for record in records}
+    guarded: list[PlanAction] = []
+    for action in actions:
+        if (
+            action.action == "local_delete"
+            and action.local is not None
+            and action.local.kind == "folder"
+            and any(child.startswith(f"{action.path}/") for child in bound_paths)
+        ):
+            guarded.append(
+                PlanAction(
+                    "index_remove",
+                    action.path,
+                    "folder id gone but has bound children; unbind only",
+                    remote_id=action.remote_id,
+                )
+            )
+            continue
+        guarded.append(action)
+    return guarded
 
 
 def overflow_creates(

@@ -609,6 +609,21 @@ class SyncEngine:
             self.recent_local_creates -= uploaded
             trashed = {marker.split(":", 1)[1] for marker in result.executed if marker.startswith("remote_trash:")}
             self.recent_local_deletes -= trashed
+            # Wegen max_actions zurueckgestellte Creates nicht verwerfen:
+            # sonst warten ungebundene Dateien bis zum naechsten 30-min-Reconcile.
+            for marker in result.skipped:
+                if not marker.startswith("max_actions_deferred:"):
+                    continue
+                parts = marker.split(":", 2)
+                if len(parts) != 3:
+                    continue
+                deferred_action, deferred_path = parts[1], parts[2]
+                if deferred_action == "upload_create" and deferred_path in self.local_by_path:
+                    self.pending_events.append(KernelEvent("created", deferred_path))
+                elif deferred_action == "download_create":
+                    for action in actions:
+                        if action.action == "download_create" and action.path == deferred_path and action.remote_id:
+                            self.changed_remote_ids.add(action.remote_id)
             if any(marker.startswith(("upload_create:", "download_create:", "remote_trash:")) for marker in result.executed):
                 self._pull_remote_changes()
             if not self.paired:

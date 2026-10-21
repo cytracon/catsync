@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from .drive import DriveClient, DriveFileNotFound
+from .drive import DriveClient, DriveError, DriveFileNotFound
 from .inventory import GOOGLE_DOC_EXTENSIONS, google_doc_placeholder, remote_entry_to_item
 from .models import LocalEntry, PlanAction, RemoteEntry
 

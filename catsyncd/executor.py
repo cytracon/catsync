@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import time
@@ -262,11 +263,14 @@ def _local_trash(root: Path, rel_path: str) -> None:
 def _write_remote_conflict_copy(root: Path, drive: DriveClient, remote: RemoteEntry | None) -> None:
     if remote is None or remote.kind == "folder":
         return
-    target = _conflict_path(_safe_target(root, remote.path), "remote")
     if remote.mime_type in GOOGLE_DOC_EXTENSIONS:
         data = google_doc_placeholder(remote).encode()
     else:
         data = drive.download_bytes(remote.id)
+    # Content-derived name: every machine creates the same conflict file for
+    # the same remote content, so 3-way sync converges instead of multiplying.
+    digest = hashlib.md5(data).hexdigest()
+    target = _conflict_path(_safe_target(root, remote.path), "remote", content_hash=digest)
     target.parent.mkdir(parents=True, exist_ok=True)
     _atomic_write(target, data)
 
@@ -329,6 +333,10 @@ def _atomic_write(target: Path, data: bytes) -> None:
     os.replace(tmp, target)
 
 
-def _conflict_path(path: Path, side: str) -> Path:
-    stamp = time.strftime("%Y%m%d-%H%M%S")
-    return path.with_name(f"{path.stem}.catsync-conflict-{side}-{stamp}{path.suffix}")
+def _conflict_path(path: Path, side: str, content_hash: str | None = None) -> Path:
+    if content_hash:
+        token = f"{side}-{content_hash[:10]}"
+    else:
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        token = f"{side}-{stamp}"
+    return path.with_name(f"{path.stem}.catsync-conflict-{token}{path.suffix}")

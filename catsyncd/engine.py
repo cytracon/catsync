@@ -287,6 +287,7 @@ class SyncEngine:
             live_ids = {item.id for item in self.remote_entries if not item.trashed}
             self.removed_remote_ids.update(record.remote_id for record in self.records if record.remote_id not in live_ids)
             self.changed_remote_ids.update(live_ids)
+            self._persist_changes_token()
             return
         changed_ids = set()
         for change in changes:
@@ -307,6 +308,21 @@ class SyncEngine:
         self.changed_remote_ids.update(changed_ids - removed_ids)
         if new_token:
             self.changes_token = new_token
+        self._persist_changes_token()
+
+    def _persist_changes_token(self) -> None:
+        """Persist the Changes page token as soon as it advances.
+
+        If the daemon dies between the pull and the next full persist, the
+        token is already safe and changes are not replayed or lost.
+        """
+        if not self.changes_token:
+            return
+        state = State(self.config.db_path)
+        try:
+            state.set_meta("changes_page_token", self.changes_token)
+        finally:
+            state.close()
 
     def _confirm_missing_bound_ids(self) -> None:
         assert self.drive is not None
@@ -557,7 +573,8 @@ class SyncEngine:
             finally:
                 self.busy_paths = set()
             self._bind_created(result.created)
-            self.records = records_from_executed(self.records, actions, result.executed)
+            local_after = self._stat_executed_local_paths(result.executed)
+            self.records = records_from_executed(self.records, actions, result.executed, local_after=local_after)
             still_local = {record.remote_id for record in self.records if record.local_path in self.local_by_path}
             self.removed_remote_ids &= still_local
             self.confirmed_missing_ids &= still_local
@@ -572,7 +589,6 @@ class SyncEngine:
                     path = marker.split(":", 1)[1]
                     if marker.startswith("local_delete:"):
                         self.local_by_path.pop(path, None)
-            self.tombstones = tombstones_from_actions(self.tombstones, actions)
             uploaded = {marker.split(":", 1)[1] for marker in result.executed if marker.startswith("upload_create:")}
             self.recent_local_creates -= uploaded
             trashed = {marker.split(":", 1)[1] for marker in result.executed if marker.startswith("remote_trash:")}
@@ -598,6 +614,30 @@ class SyncEngine:
         )
         return summary
 
+    def _stat_executed_local_paths(self, executed: list[str]) -> dict[str, LocalEntry]:
+        """Fresh on-disk state for paths we just wrote.
+
+        Records must reflect the actual file after a download/upload, otherwise
+        the next tick detects a phantom local change and re-uploads (ping-pong).
+        """
+        paths = {
+            marker.split(":", 1)[1]
+            for marker in executed
+            if marker.startswith(("download_create:", "download_update:", "upload_create:", "upload_update:"))
+        }
+        out: dict[str, LocalEntry] = {}
+        for path in paths:
+            entry = local_entry_from_path(
+                self.config.sync_root,
+                path,
+                self.config.hash_limit_bytes,
+                {},
+                self.config.sync_symlinks,
+            )
+            if entry is not None:
+                out[path] = entry
+        return out
+
     def _bind_created(self, created: dict[str, dict]) -> None:
         for path, item in created.items():
             if not item.get("id"):
@@ -611,6 +651,17 @@ class SyncEngine:
                 record for record in self.records if record.remote_id != entry.id and record.local_path != path
             ]
             self.records.append(record_from_pair(local, entry))
+            if entry.kind == "folder":
+                # New local folder uploaded: immediately enqueue its children.
+                # They were scanned on the create event but had no events of
+                # their own; without this they wait for the 30-min reconcile.
+                prefix = f"{path}/"
+                for child_path in sorted(self.local_by_path):
+                    if child_path.startswith(prefix):
+                        child = self.local_by_path[child_path]
+                        self.pending_events.append(
+                            KernelEvent("created", child_path, is_dir=child.kind == "folder")
+                        )
 
     def _persist(self, actions) -> None:
         state = State(self.config.db_path)

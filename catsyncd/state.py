@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS plan_actions (
   reason TEXT NOT NULL,
   local_json TEXT,
   remote_json TEXT,
+  remote_id TEXT,
   created_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS sync_records (
@@ -87,6 +88,7 @@ class State:
 
     def _migrate(self) -> None:
         self._ensure_column("local_entries", "md5", "TEXT")
+        self._ensure_column("plan_actions", "remote_id", "TEXT")
 
     def _ensure_column(self, table: str, column: str, definition: str) -> None:
         rows = self.db.execute(f"PRAGMA table_info({table})").fetchall()
@@ -151,8 +153,8 @@ class State:
             self.db.execute("DELETE FROM plan_actions")
             self.db.executemany(
                 """
-                INSERT INTO plan_actions(action,path,reason,local_json,remote_json,created_at)
-                VALUES(?,?,?,?,?,?)
+                INSERT INTO plan_actions(action,path,reason,local_json,remote_json,remote_id,created_at)
+                VALUES(?,?,?,?,?,?,?)
                 """,
                 [
                     (
@@ -161,6 +163,7 @@ class State:
                         a.reason,
                         _json_dataclass(a.local),
                         _json_dataclass(a.remote),
+                        a.remote_id,
                         now,
                     )
                     for a in actions
@@ -174,7 +177,7 @@ class State:
     def conflict_actions(self) -> list[PlanAction]:
         rows = self.db.execute(
             """
-            SELECT action,path,reason,local_json,remote_json
+            SELECT action,path,reason,local_json,remote_json,remote_id
             FROM plan_actions
             WHERE action IN ('conflict_copy_local', 'conflict_review')
             ORDER BY action,path
@@ -186,7 +189,7 @@ class State:
         placeholders = ",".join("?" for _ in actions)
         row = self.db.execute(
             f"""
-            SELECT action,path,reason,local_json,remote_json
+            SELECT action,path,reason,local_json,remote_json,remote_id
             FROM plan_actions
             WHERE path=? AND action IN ({placeholders})
             ORDER BY id
@@ -206,7 +209,7 @@ class State:
         params.append(limit)
         rows = self.db.execute(
             f"""
-            SELECT action,path,reason,local_json,remote_json
+            SELECT action,path,reason,local_json,remote_json,remote_id
             FROM plan_actions
             {where}
             ORDER BY id
@@ -439,13 +442,14 @@ def _json_dataclass(value: object | None) -> str | None:
 def _plan_action_from_row(row) -> PlanAction:
     local = _local_from_json(row["local_json"])
     remote = _remote_from_json(row["remote_json"])
+    stored_remote_id = row["remote_id"] if "remote_id" in row.keys() else None
     return PlanAction(
         action=row["action"],
         path=row["path"],
         reason=row["reason"],
         local=local,
         remote=remote,
-        remote_id=remote.id if remote else None,
+        remote_id=stored_remote_id or (remote.id if remote else None),
     )
 
 

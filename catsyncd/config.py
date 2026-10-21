@@ -10,6 +10,7 @@ APP_NAME = "catsyncd"
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / APP_NAME
 STATE_DIR = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state")) / APP_NAME
 DEFAULT_IGNORE_PATTERNS = (
+    "**/apktool/**",
     "*.tmp",
     "*.temp",
     "*.part",
@@ -83,14 +84,14 @@ class Config:
     db_path: Path
     poll_interval: int = 60
     allow_writes: bool = False
-    allow_deletes: bool = False
+    allow_deletes: bool = True
     dry_run: bool = True
     include_shared_drives: bool = False
     hash_limit_bytes: int = 64 * 1024 * 1024
     launch_daemon_at_login: bool = True
     launch_tray_at_login: bool = True
     desktop_notifications: bool = True
-    conflict_policy: str = "prefer_newer"
+    conflict_policy: str = "keep_both"
     google_docs_mode: str = "placeholder"
     proxy_mode: str = "system"
     proxy_host: str = ""

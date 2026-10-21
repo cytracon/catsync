@@ -58,7 +58,7 @@ def pair_once(
     local_entries: Iterable[LocalEntry],
     remote_entries: Iterable[RemoteEntry],
     existing_records: Iterable[SyncRecord] = (),
-    conflict_policy: str = "prefer_newer",
+    conflict_policy: str = "keep_both",
 ) -> tuple[list[SyncRecord], list[PlanAction]]:
     """First pairing only: path-match, then upload/download the remainder.
 
@@ -109,7 +109,7 @@ def plan_local_events(
     local_by_path: dict[str, LocalEntry],
     remote_entries: Iterable[RemoteEntry],
     records: Iterable[SyncRecord],
-    conflict_policy: str = "prefer_newer",
+    conflict_policy: str = "keep_both",
 ) -> list[PlanAction]:
     """inotify → actions. Unbound leftover paths with no create are ignored."""
     remote_by_path = {item.path: item for item in remote_entries if not item.trashed}
@@ -179,16 +179,20 @@ def plan_local_events(
                     actions.append(PlanAction("upload_create", path, "inotify recreate; bound id gone", local=local))
                     continue
                 if local.kind == "file" and _local_changed(record, local):
-                    actions.append(
-                        PlanAction(
-                            "upload_update",
-                            path,
-                            "inotify create/replace on bound file",
-                            local,
-                            remote,
-                            remote_id=remote.id,
+                    if _remote_changed(record, remote):
+                        # Concurrent edit on Drive: never blind-overwrite.
+                        actions.extend(_plan_record(record, local, remote, conflict_policy))
+                    else:
+                        actions.append(
+                            PlanAction(
+                                "upload_update",
+                                path,
+                                "inotify create/replace on bound file",
+                                local,
+                                remote,
+                                remote_id=remote.id,
+                            )
                         )
-                    )
                 continue
             remote_at = remote_by_path.get(path)
             if remote_at is not None and remote_at.id not in record_by_id:
@@ -206,16 +210,20 @@ def plan_local_events(
             if remote is None or local.kind != "file":
                 continue
             if _local_changed(record, local):
-                actions.append(
-                    PlanAction(
-                        "upload_update",
-                        path,
-                        "inotify close-write on bound file",
-                        local,
-                        remote,
-                        remote_id=remote.id,
+                if _remote_changed(record, remote):
+                    # Concurrent edit on Drive: never blind-overwrite.
+                    actions.extend(_plan_record(record, local, remote, conflict_policy))
+                else:
+                    actions.append(
+                        PlanAction(
+                            "upload_update",
+                            path,
+                            "inotify close-write on bound file",
+                            local,
+                            remote,
+                            remote_id=remote.id,
+                        )
                     )
-                )
 
     return _drop_noop_index(actions)
 
@@ -227,7 +235,7 @@ def plan_remote_changes(
     remote_entries: Iterable[RemoteEntry],
     local_by_path: dict[str, LocalEntry],
     records: Iterable[SyncRecord],
-    conflict_policy: str = "prefer_newer",
+    conflict_policy: str = "keep_both",
 ) -> list[PlanAction]:
     """Changes API → actions for those IDs only."""
     removed = {item for item in removed_ids if item}
@@ -295,7 +303,7 @@ def plan_new_remote_ids(
     records: Iterable[SyncRecord],
     local_by_path: dict[str, LocalEntry],
     new_ids: Iterable[str],
-    conflict_policy: str = "prefer_newer",
+    conflict_policy: str = "keep_both",
 ) -> list[PlanAction]:
     """Download (or bind) IDs that the change feed / full list just introduced."""
     wanted = {item for item in new_ids if item}
@@ -330,7 +338,7 @@ def plan_bound_objects(
     removed_ids: Iterable[str] = (),
     confirmed_missing_ids: Iterable[str] = (),
     recent_local_deletes: Iterable[str] = (),
-    conflict_policy: str = "prefer_newer",
+    conflict_policy: str = "keep_both",
 ) -> list[PlanAction]:
     """Bound IDs only. Unknown (not in cache, not GET-confirmed gone) is a no-op."""
     local_by_path = {item.path: item for item in local_entries}
@@ -472,10 +480,17 @@ def coalesce_actions(*groups: Iterable[PlanAction]) -> list[PlanAction]:
         seen.add(key)
         kept.append(action)
 
-    remote_paths = [item.path for item in kept if item.remote and item.action != "conflict_review"]
-    for path, count in Counter(remote_paths).items():
-        if count > 1:
-            kept.append(PlanAction("conflict_review", path, "duplicate remote path"))
+    # A real duplicate is two DIFFERENT Drive files claiming the same path.
+    # Two actions for the same remote_id (e.g. keep-both conflict_copy +
+    # upload_update) are the same object and must not trigger conflict_review.
+    seen_remote_paths: dict[str, str] = {}
+    for item in kept:
+        if item.remote and item.action != "conflict_review":
+            remote_id = item.remote.id
+            if item.path in seen_remote_paths and seen_remote_paths[item.path] != remote_id:
+                kept.append(PlanAction("conflict_review", item.path, "duplicate remote path"))
+            else:
+                seen_remote_paths[item.path] = remote_id
     return kept
 
 

@@ -93,7 +93,7 @@ def test_both_changed_conflict_copy():
         [remote("a.txt", remote_id="rid", md5="remote", size=1)],
         [record("a.txt", remote_id="rid", md5="base", size=1)],
     )
-    assert summarize(actions) == {"conflict_copy_local": 1}
+    assert summarize(actions) == {"conflict_copy_local": 1, "upload_update": 1}
 
 
 def test_both_changed_prefer_local_uploads():
@@ -106,46 +106,43 @@ def test_both_changed_prefer_local_uploads():
     assert summarize(actions) == {"upload_update": 1}
 
 
-def test_both_changed_prefer_newer_uploads_when_local_is_newer():
+def test_both_changed_prefer_newer_keeps_both_when_local_is_newer():
     actions = build_plan(
         [local("a.txt", md5="local", size=1, mtime=2_000_000_000)],
         [remote("a.txt", remote_id="rid", md5="remote", size=1, modified="1970-01-01T00:00:01.000Z")],
         [record("a.txt", remote_id="rid", md5="base", size=1)],
         conflict_policy="prefer_newer",
     )
-    assert actions[0].action == "upload_update"
-    assert actions[0].reason == "both sides changed; local newer"
+    assert summarize(actions) == {"conflict_copy_local": 1, "upload_update": 1}
 
 
-def test_both_changed_prefer_newer_downloads_when_remote_is_newer():
+def test_both_changed_prefer_newer_keeps_both_when_remote_is_newer():
     actions = build_plan(
         [local("a.txt", md5="local", size=1, mtime=1_000_000_000)],
         [remote("a.txt", remote_id="rid", md5="remote", size=1, modified="1970-01-01T00:00:03.000Z")],
         [record("a.txt", remote_id="rid", md5="base", size=1)],
         conflict_policy="prefer_newer",
     )
-    assert actions[0].action == "download_update"
-    assert actions[0].reason == "both sides changed; remote newer"
+    assert summarize(actions) == {"conflict_copy_local": 1, "upload_update": 1}
 
 
-def test_both_changed_prefer_newer_keeps_conflict_when_ambiguous():
+def test_both_changed_prefer_newer_keeps_both_when_ambiguous():
     actions = build_plan(
         [local("a.txt", md5="local", size=1, mtime=1_500_000_000)],
         [remote("a.txt", remote_id="rid", md5="remote", size=1, modified="1970-01-01T00:00:01.000Z")],
         [record("a.txt", remote_id="rid", md5="base", size=1)],
         conflict_policy="prefer_newer",
     )
-    assert summarize(actions) == {"conflict_copy_local": 1}
+    assert summarize(actions) == {"conflict_copy_local": 1, "upload_update": 1}
 
 
-def test_untracked_differing_pair_prefer_newer_downloads_remote():
+def test_untracked_differing_pair_prefer_newer_keeps_both():
     actions = build_plan(
         [local("a.txt", md5="local", size=1, mtime=1_000_000_000)],
         [remote("a.txt", remote_id="rid", md5="remote", size=1, modified="1970-01-01T00:00:03.000Z")],
         conflict_policy="prefer_newer",
     )
-    assert actions[0].action == "download_update"
-    assert actions[0].reason == "new local and remote differ; remote newer"
+    assert summarize(actions) == {"conflict_copy_local": 1, "upload_update": 1}
 
 
 def test_untracked_differing_pair_prefer_local_uploads():

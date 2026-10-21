@@ -189,10 +189,18 @@ def records_from_executed(
     records: Iterable[SyncRecord],
     actions: Iterable[PlanAction],
     executed: Iterable[str] = (),
+    local_after: dict[str, LocalEntry] | None = None,
 ) -> list[SyncRecord]:
-    """Bind Drive IDs as soon as a pair is known, not after the next full scan."""
+    """Bind Drive IDs as soon as a pair is known, not after the next full scan.
+
+    ``local_after`` carries the actual on-disk state after downloads/uploads
+    (freshly stat-ed). For download actions the record MUST reflect the newly
+    written file, otherwise the next tick sees a spurious local change and
+    uploads the same content back (ping-pong).
+    """
     by_id = {record.remote_id: record for record in records}
     executed_set = set(executed)
+    local_after = local_after or {}
     for action in actions:
         if action.action not in {"download_create", "download_update", "upload_update", "index_update"}:
             continue
@@ -202,14 +210,17 @@ def records_from_executed(
         remote = action.remote
         if remote is None:
             continue
-        local = action.local or LocalEntry(
-            path=action.path,
-            kind=remote.kind,
-            size=remote.size,
-            mtime_ns=None,
-            md5=remote.md5,
-            sha256=None,
-        )
+        if action.action in {"download_create", "download_update"} and action.path in local_after:
+            local = local_after[action.path]
+        else:
+            local = action.local or LocalEntry(
+                path=action.path,
+                kind=remote.kind,
+                size=remote.size,
+                mtime_ns=None,
+                md5=remote.md5,
+                sha256=None,
+            )
         by_id[remote.id] = record_from_pair(local, remote)
     return list(by_id.values())
 
@@ -349,13 +360,15 @@ def _plan_record(
             return [PlanAction("upload_update", local.path, "both sides changed; prefer local", local, remote, remote_id=remote.id)]
         if conflict_policy == "prefer_remote":
             return [PlanAction("download_update", remote.path, "both sides changed; prefer remote", local, remote, remote_id=remote.id)]
-        if conflict_policy == "prefer_newer" and local.kind == "file" and not _is_google_workspace(remote):
-            newer = _newer_side(local, remote)
-            if newer == "local":
-                return [PlanAction("upload_update", local.path, "both sides changed; local newer", local, remote, remote_id=remote.id)]
-            if newer == "remote":
-                return [PlanAction("download_update", remote.path, "both sides changed; remote newer", local, remote, remote_id=remote.id)]
-        return [PlanAction("conflict_copy_local", local.path, "both sides changed", local, remote, remote_id=remote.id)]
+        # Default: never auto-resolve divergent edits by mtime/clock. Keep both
+        # sides: save the remote version as a content-addressed conflict copy,
+        # then upload the local version. Both versions reach Drive and every
+        # machine; the conflict copy name is derived from its content, so all
+        # machines converge on the same copy instead of generating new ones.
+        return [
+            PlanAction("conflict_copy_local", local.path, "both sides changed; keep remote copy", local, remote, remote_id=remote.id),
+            PlanAction("upload_update", local.path, "both sides changed; keep local as main", local, remote, remote_id=remote.id),
+        ]
     if local_moved and not remote_moved:
         return [PlanAction("remote_move", local.path, "local moved", local, remote, record.remote_path, local.path, remote.id)]
     if remote_moved and not local_moved:
@@ -383,13 +396,10 @@ def _plan_untracked_pair(
         return [PlanAction("upload_update", path, "new local and remote differ; prefer local", local, remote, remote_id=remote.id)]
     if conflict_policy == "prefer_remote":
         return [PlanAction("download_update", path, "new local and remote differ; prefer remote", local, remote, remote_id=remote.id)]
-    if conflict_policy == "prefer_newer" and local.kind == "file" and not _is_google_workspace(remote):
-        newer = _newer_side(local, remote)
-        if newer == "local":
-            return [PlanAction("upload_update", path, "new local and remote differ; local newer", local, remote, remote_id=remote.id)]
-        if newer == "remote":
-            return [PlanAction("download_update", path, "new local and remote differ; remote newer", local, remote, remote_id=remote.id)]
-    return [PlanAction("conflict_copy_local", path, "new local and remote differ", local, remote, remote_id=remote.id)]
+    return [
+        PlanAction("conflict_copy_local", path, "new local and remote differ; keep remote copy", local, remote, remote_id=remote.id),
+        PlanAction("upload_update", path, "new local and remote differ; keep local as main", local, remote, remote_id=remote.id),
+    ]
 
 
 def _local_entry_changed(previous: LocalEntry, current: LocalEntry) -> bool:

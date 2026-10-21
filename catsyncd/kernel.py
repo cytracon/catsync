@@ -203,8 +203,15 @@ def plan_local_events(
 
         if event.kind == "modified" and path:
             local = local_by_path.get(path)
+            if local is None:
+                continue
             record = record_by_local.get(path)
-            if local is None or record is None:
+            if record is None:
+                remote_at = remote_by_path.get(path)
+                if remote_at is not None and remote_at.id not in record_by_id:
+                    actions.extend(_plan_untracked_pair(path, local, remote_at, conflict_policy))
+                else:
+                    actions.append(PlanAction("upload_create", path, "inotify close-write new file", local=local))
                 continue
             remote = next((item for item in remote_entries if item.id == record.remote_id and not item.trashed), None)
             if remote is None or local.kind != "file":

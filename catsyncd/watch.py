@@ -7,6 +7,7 @@ import queue
 import select
 import struct
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -65,7 +66,7 @@ class InotifyWatcher:
         self.events: queue.Queue[FsEvent] = queue.Queue()
         self._wd_to_dir: dict[int, Path] = {}
         self._dir_to_wd: dict[Path, int] = {}
-        self._pending_moves: dict[int, tuple[Path, bool]] = {}
+        self._pending_moves: dict[int, tuple[Path, bool, float]] = {}
         self._libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
         self._libc.inotify_init1.restype = ctypes.c_int
         self._libc.inotify_add_watch.restype = ctypes.c_int
@@ -156,6 +157,7 @@ class InotifyWatcher:
                 ready, _wp, _xp = select.select([self.fd], [], [], 0.5)
             except (OSError, ValueError):
                 return
+            self._expire_pending_moves()
             if not ready:
                 continue
             try:
@@ -166,6 +168,20 @@ class InotifyWatcher:
                 return
             for event in _parse_inotify_buffer(data):
                 self._handle(event)
+
+    def _expire_pending_moves(self) -> None:
+        # GUI-Loeschungen (Move in den Papierkorb) erzeugen nur ein
+        # MOVED_FROM im Sync-Root; das MOVED_TO liegt im Papierkorb ausserhalb
+        # des Watch-Baums und kommt nie an. Ohne Ablauf wuerde die Datei
+        # unbemerkt fehlen und spaeter aus Drive wiederhergestellt werden.
+        now = time.monotonic()
+        for cookie, (src, is_dir, ts) in list(self._pending_moves.items()):
+            if now - ts > 2.0:
+                del self._pending_moves[cookie]
+                rel = self._rel(src)
+                self.events.put(FsEvent("deleted", rel, is_dir=is_dir))
+                if is_dir:
+                    self.remove_dir(src)
 
     def _handle(self, raw: _RawEvent) -> None:
         if raw.mask & IN_Q_OVERFLOW:
@@ -189,14 +205,15 @@ class InotifyWatcher:
                 self.events.put(FsEvent("deleted", rel, is_dir=True))
             return
         if raw.mask & IN_MOVED_FROM:
-            self._pending_moves[raw.cookie] = (target, is_dir)
+            self._pending_moves[raw.cookie] = (target, is_dir, time.monotonic())
             return
         if raw.mask & IN_MOVED_TO:
             src = self._pending_moves.pop(raw.cookie, None)
             if src is not None:
-                self.events.put(FsEvent("moved", rel, src_path=self._rel(src[0]), is_dir=is_dir))
+                src_path, _src_is_dir, _ts = src
+                self.events.put(FsEvent("moved", rel, src_path=self._rel(src_path), is_dir=is_dir))
                 if is_dir:
-                    self.remove_dir(src[0])
+                    self.remove_dir(src_path)
                     self.add_tree(target)
             else:
                 self.events.put(FsEvent("created", rel, is_dir=is_dir))
